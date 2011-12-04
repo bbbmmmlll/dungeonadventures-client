@@ -1,0 +1,378 @@
+<?xml version="1.0" encoding="utf-8"?>
+<s:Application xmlns:fx="http://ns.adobe.com/mxml/2009" 
+			   xmlns:s="library://ns.adobe.com/flex/spark" 
+			   xmlns:mx="library://ns.adobe.com/flex/mx"
+			   xmlns:f="http://flintparticles.org/2009/flint2d"
+			   height="600" width="760" backgroundColor="white"
+			   applicationComplete="init()">
+	
+	<fx:Style source="da_style.css"/>
+	
+	<fx:Script>
+		<![CDATA[
+			import com.facebook.Facebook;
+			import com.facebook.commands.users.GetInfo;
+			import com.facebook.data.users.FacebookUser;
+			import com.facebook.data.users.GetInfoData;
+			import com.facebook.data.users.GetInfoFieldValues;
+			import com.facebook.events.FacebookEvent;
+			import com.facebook.net.FacebookCall;
+			import com.facebook.utils.FacebookSessionUtil;
+			
+			import org.flintparticles.twoD.renderers.BitmapRenderer;
+			import org.flintparticles.common.energyEasing.TwoWay;
+			[Embed(source="assets/images/DUNGEONADVENTURES.png")]
+			public var Logo:Class;
+			[Embed(source="assets/fireblob.swf", symbol="FireBlob")]
+			[Bindable]
+			public var FireBlob:Class;
+			
+			import flash.net.Responder;
+			
+			import mx.charts.HitData;
+			import mx.charts.events.ChartItemEvent;
+			import mx.collections.ArrayCollection;
+			import mx.collections.ItemResponder;
+			import mx.containers.TitleWindow;
+			import mx.controls.AdvancedDataGrid;
+			import mx.controls.Alert;
+			import mx.controls.Image;
+			import mx.controls.dataGridClasses.DataGridColumn;
+			import mx.events.CloseEvent;
+			import mx.events.CollectionEvent;
+			import mx.managers.PopUpManager;
+			import mx.messaging.ChannelSet;
+			import mx.messaging.channels.AMFChannel;
+			import mx.rpc.AsyncToken;
+			import mx.rpc.events.*;
+			import mx.rpc.events.FaultEvent;
+			import mx.rpc.events.ResultEvent;
+			import mx.rpc.remoting.mxml.RemoteObject;
+			import mx.utils.ArrayUtil;
+			
+			import spark.components.NavigatorContent;
+			import spark.events.IndexChangeEvent;
+			
+			private var fbook:Facebook;
+			private var session:FacebookSessionUtil;
+			private var user:FacebookUser;
+			
+			protected var nc:NetConnection;
+			protected var ncUrl:String;
+			protected var ro:RemoteObject;
+			protected var roUrl:String;
+			protected var newsArray:Array = [{Image:"", Item:"Welcome to Dungeon Adventures!"}];
+			
+			[Bindable]
+			public var newsProvider:ArrayCollection;
+			//Initialize initDG ArrayCollection variable from the Array.
+			//You can use this technique to convert an HTTPService, 
+			//WebService, or RemoteObject result to ArrayCollection.
+			public function initNews():void {
+				newsProvider=new ArrayCollection(newsArray);
+			}
+			/* Player data object, send from server */
+			[Bindable]
+			protected var playerInfo:Object;
+
+			private function init():void{			
+				
+				session=new FacebookSessionUtil("APP INFO GOES HERE","APP INFO GOES HERE",loaderInfo);
+				session.addEventListener(FacebookEvent.CONNECT,onConnect);
+				fbook=session.facebook;
+				if(loaderInfo.parameters.fb_sig_session_key){
+					session.verifySession();
+				}
+				else{
+					session.login();
+					loginbutton.visible=true;
+				}
+				initNews();
+				status.text="init";
+			}
+			private function onConfirmLogin():void{
+				this.removeChild(loginbutton);
+				session.validateLogin();
+			}
+			private function onConnect(e:FacebookEvent):void{
+				if(e.success){
+					var call:FacebookCall=fbook.post(new GetInfo([fbook.uid],[GetInfoFieldValues.ALL_VALUES]));
+					call.addEventListener(FacebookEvent.COMPLETE,onGetInfo);
+				}
+				else{
+					title.text="Error connecting to Facebook";
+				}
+				status.text="onConnect";
+			}
+			//
+			private function onGetInfo(e:FacebookEvent):void{
+				user=(e.data as GetInfoData).userCollection.getItemAt(0) as FacebookUser;
+				title.text="Welcome back " + user.first_name + "!";
+				title.uid = user.uid;
+				title.name = user.name;
+				status.text="onGetInfo";
+				daLogin(user.uid, user.name, user.pic_square);				
+			}
+			private function handleCreateCharacter(e:ResultEvent):void {
+				// debug statement
+			}
+			private function handleFault(e:FaultEvent):void {
+				// debug statement
+			}
+			protected function getRemoteObject():RemoteObject {
+				if (ro != null) {
+					// If a RemotObject already exists
+					// and the user has not changed the 
+					// URL, then return the existing ro
+					return ro;
+				}
+				
+				// Create the AMF Channel
+				roUrl = "http://da.mithrilsoft.com:8000/amf";
+				var channel:AMFChannel = new AMFChannel("amf-channel", roUrl);
+				
+				// Create a channel set and add your channel(s) to it
+				var channels:ChannelSet = new ChannelSet();
+				channels.addChannel(channel);
+				
+				// Create a new remote object
+				ro = new RemoteObject("DAService");
+				ro.showBusyCursor = true;
+				ro.channelSet = channels;
+				
+				return ro;
+			}
+			protected function daLogin(uid:String, name:String, pic_square:String):void {
+				var remoteObj:RemoteObject = getRemoteObject();
+				var pI:AsyncToken = remoteObj.get_player_info(uid, name, pic_square);
+				pI.addResponder(new ItemResponder(playerInfo_resultHandler, playerInfo_faultHandler, pI));
+				var nI:AsyncToken = remoteObj.get_news(uid)
+				nI.addResponder(new ItemResponder(newsInfo_resultHandler, newsInfo_faultHandler, nI));
+			}
+			protected function playerInfo_resultHandler(event:ResultEvent, token:AsyncToken):void {
+				playerInfo = event.result;
+				if (playerInfo.dungeon_id == 0) {
+					this.currentState = "townView";
+				}
+				else {
+					this.currentState = "dungeonView";
+				}
+			}
+			protected function playerInfo_faultHandler(event:FaultEvent, token:AsyncToken):void {
+				Alert.show(String(event.fault.faultString), "Error:");
+			}
+			
+			protected function newsInfo_resultHandler(event:ResultEvent, token:AsyncToken):void {
+				var length:int = event.result.length;
+
+				for (var i:int=0; i < length; i++) {
+					newsProvider.addItem(event.result[i]);
+				}
+			}
+			protected function newsInfo_faultHandler(event:FaultEvent, token:AsyncToken):void {
+				Alert.show("No news at the moment!");
+			}
+			
+			/**
+			 * Invoke using RemoteObject.
+			 */
+			protected function submitRo():void {
+				var remoteObj:RemoteObject = getRemoteObject();
+				var token:AsyncToken = remoteObj.echo(title.uid);                   
+				token.addResponder(new ItemResponder(submitData_resultHandler, submitData_faultHandler, token));
+			}           
+			/**
+			 * Handle a RemoteObject result.
+			 */
+			protected function submitData_resultHandler(event:ResultEvent, token:AsyncToken):void {
+				//Alert.show(String(event.result), "Got Result:");
+				/* TODO: better to just query the player object again */
+				var result:Object = event.result;
+				if (event.result) {
+					playerInfo = result;
+				}
+			}           
+			/**
+			 * Handle a RemoteObject fault.
+			 */
+			protected function submitData_faultHandler(event:FaultEvent, token:AsyncToken):void {
+				Alert.show(String(event.fault.faultString), "Error:");
+			}            
+			/**
+			 * Raise an exception on the server side.
+			 */
+			protected function raiseException():void {
+				raiseExcRo();
+			}
+			/**
+			 * Raise an exception on the server side.
+			 * using a RemoteObject.
+			 */
+			protected function raiseExcRo():void {
+				var remoteObj:RemoteObject = getRemoteObject();
+				var token:AsyncToken = remoteObj.raiseException();
+				
+				token.addResponder(new ItemResponder(submitData_resultHandler, submitData_faultHandler, token));
+			}
+			
+			/**
+			 * Handle Attack
+			 */
+			protected function doAttack():void {
+				var remoteObj:RemoteObject = getRemoteObject();
+				var pI:AsyncToken = remoteObj.do_attack(playerInfo.fb_uid);
+				pI.addResponder(new ItemResponder(playerInfo_resultHandler, playerInfo_faultHandler, pI));
+			}
+			
+			protected function getFloor():void {
+				var remoteObj:RemoteObject = getRemoteObject();
+				var pI:AsyncToken = remoteObj.get_floor(playerInfo.fb_uid);
+				pI.addResponder(new ItemResponder(playerInfo_resultHandler, playerInfo_faultHandler, pI));
+			}
+			
+			protected function getMonster():void {
+				var remoteObj:RemoteObject = getRemoteObject();
+				var pI:AsyncToken = remoteObj.get_monster(playerInfo.fb_uid);
+				pI.addResponder(new ItemResponder(playerInfo_resultHandler, playerInfo_faultHandler, pI));
+			}
+			
+			/**
+			 * Dungeon Overlay
+			 */
+			protected function enterDungeon_handler():void {
+				Alert.show("Are you sure you want to enter the Dungeon?", "Enter Dungeon?", mx.controls.Alert.YES|mx.controls.Alert.NO, this, enterDungeon_event);
+			}
+			protected function enterDungeon_event(event:CloseEvent):void {
+				if (event.detail == Alert.YES) {
+					getFloor();
+				}
+			}
+
+		]]>
+	</fx:Script>
+	
+	<s:states>
+		<s:State name="townView"/>
+		<s:State name="dungeonView"/>
+	</s:states>
+	
+	<fx:Declarations>
+		<!-- Place non-visual elements (e.g., services, value objects) here -->
+		<mx:RemoteObject id="createCharacter"
+						 source="DAController"
+						 destination="da"
+						 fault="handleFault(event)">
+			<mx:method name="fb" result="handleCreateCharacter(event)"/>
+		</mx:RemoteObject>
+	</fx:Declarations>
+	
+	<mx:Button id="loginbutton" label="Click after you log into Facebook" click="onConfirmLogin()" visible="false" x="252" y="169" width="267" height="46" includeIn="townView"/>
+	<mx:Text x="624" y="580" text="build 0.0.0.14" height="19" width="140" enabled="true" color="black"/>
+	<mx:Text x="10" y="580" text="status:" color="black"/>
+	<mx:Text x="70" y="580" text="starting" width="200" id="status" color="black"/>
+	<mx:Button x="332" y="496" label="Start Game" visible="false" width="128" height="26" id="start_game" enabled="false" click="createCharacter.fb.send()"/>
+	<mx:Label id="title" text="Welcome to Dungeon Adventures" x="9" y="39" width="419" textAlign="left" fontSize="14"/>
+	<s:TextArea x="639" y="202" width="42" height="21" text="XP"/>
+	<s:TextArea x="639" y="229" width="42" height="21" text="GLD"/>
+	<s:TextArea x="639" y="258" width="42" height="21" text="HP"/>
+	<s:TextArea x="639" y="287" width="42" height="21" text="MID"/>
+	<s:TextArea x="639" y="316" width="42" height="21" text="MHP"/>
+	<s:TextArea x="693" y="202" width="42" height="21" text="{playerInfo.xp}" id="xp" editable="false"/>
+	<s:TextArea x="693" y="229" width="42" height="21" text="{playerInfo.gold}" id="gold" editable="false"/>
+	<s:TextArea x="693" y="258" width="42" height="21" text="{playerInfo.hp}" id="hp" editable="false"/>
+	<s:TextArea x="693" y="287" width="42" height="21" text="{playerInfo.monster_id}" id="monster_id" editable="false"/>
+	<s:TextArea x="693" y="316" width="42" height="21" text="{playerInfo.monster_hp}" id="monster_hp" enabled="true" editable="false"/>
+	
+	<!-- uses too much CPU, need to reduce -->
+	<mx:Image x="8" y="0" source="@Embed(source='assets/images/DUNGEONADVENTURES.png')" width="320" height="31" scaleContent="false"/>
+	<f:BitmapRenderer id="renderer" width="320" height="31">
+		<f:emitters>
+			<f:Emitter id="emitter" autoStart="true" x="10" y="10">
+				<f:counter>
+					<f:Steady rate="180"/>
+				</f:counter>
+				<f:initializers>
+					<f:Position>
+						<f:BitmapDataZone bitmapData="{(new Logo()).bitmapData}"/>
+					</f:Position>
+					<f:Velocity>
+						<f:DiscSectorZone centerX="0" centerY="0" innerRadius="5" outerRadius="10" minAngle="{-Math.PI * 0.75}" maxAngle="{-Math.PI * 0.25}"/>
+					</f:Velocity>
+					<f:ImageClass imageClass="{FireBlob}"/>
+					<f:Lifetime lifetime="0.8"/>
+				</f:initializers>
+				<f:actions>
+					<f:Move/>
+					<f:Age easing="{TwoWay.quadratic}"/>
+					<f:LinearDrag drag="1"/>
+					<f:Accelerate x="0" y="-20"/>
+					<f:ColorChange startColor="0xFFFF9900" endColor="0x00FFDD66"/>
+					<f:ScaleImage startScale=".2" endScale="2"/>
+					<f:RotateToDirection/>
+				</f:actions>
+			</f:Emitter>
+		</f:emitters>
+	</f:BitmapRenderer>
+	
+	<mx:TabNavigator x="10" y="66" width="602" height="516" id="da_tabs">
+		<s:NavigatorContent label="News" width="100%" height="100%" backgroundColor="white" id="news" skinClass="spark.skins.spark.SkinnableContainerSkin">
+			<mx:DataGrid showHeaders="false" x="0" y="121" width="480" height="355" dataProvider="{newsProvider}" chromeColor="white" selectionColor="white" rollOverColor="gray" id="newsFeed" fontSize="10" fontWeight="normal" editable="false" verticalGridLines="false" borderVisible="false" variableRowHeight="true" maxHeight="50" contentBackgroundColor="white">
+				<mx:columns>
+					<mx:DataGridColumn dataField="Image" resizable="false" sortable="false" backgroundColor="white" color="black" wordWrap="true" width="50">
+						<mx:itemRenderer>
+							<fx:Component>
+								<mx:Image source="{data.Image}" horizontalAlign="center" verticalAlign="middle"/>
+							</fx:Component>
+						</mx:itemRenderer>
+					</mx:DataGridColumn>
+					<mx:DataGridColumn dataField="Item" resizable="false" sortable="false" backgroundColor="white" color="black" wordWrap="true" width="310"/>
+				</mx:columns>
+			</mx:DataGrid>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="Town" width="100%" height="100%" backgroundColor="white" id="townview" includeIn="townView">
+			<mx:Image x="0" y="0" width="600" height="480" id="town_1_bg" source="assets/images/town_1_bg_600x480.jpg"/>
+			<mx:Image x="442" y="0" width="158" height="150" source="assets/images/dungeon_entrance_skull_highlight.jpg" scaleContent="false" id="dungeon_1_overlay" click="enterDungeon_handler()" toolTip="Enter Dungeon" visible="true" enabled="true"/>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="Dungeon" width="100%" height="100%" backgroundColor="white" id="dungeon" includeIn="dungeonView">
+			<s:TextArea x="6" y="10" width="48" height="24" text="Level:" contentBackgroundColor="white" color="black"/>
+			<s:TextArea x="53" y="10" width="56" height="24" contentBackgroundColor="white" color="black" text="{playerInfo.dungeon_id}" editable="false"/>
+			<mx:Image x="94" y="100" width="256" height="180" id="dungeon_room" source="assets/images/floor_1.jpg"/>
+			<mx:Image x="197" y="51" width="50" height="50" id="door_north" source="assets/images/door.png" enabled="false" visible="{playerInfo.north}"/>
+			<mx:Image x="197" y="280" width="50" height="50" id="door_south" source="assets/images/door.png" enabled="false" visible="{playerInfo.south}"/>
+			<mx:Image x="45" y="166" width="50" height="50" id="door_west" source="assets/images/door.png" enabled="false" visible="{playerInfo.west}"/>
+			<mx:Image x="349" y="166" width="50" height="50" id="door_east" source="assets/images/door.png" enabled="false" visible="{playerInfo.east}"/>
+			<mx:Image x="10" y="441" id="boss_icon" source="assets/images/boss_icon.png" enabled="false" visible="false"/>
+			<mx:Image x="41" y="441" id="artifact_icon" source="assets/images/artifact_icon.png" enabled="false" visible="false"/>
+			<mx:Image x="72" y="441" id="special_icon" source="assets/images/special_icon.png" enabled="false" visible="false"/>
+			<mx:Image x="197" y="206" width="50" height="50" id="mob_icon" source="assets/images/mob.gif" enabled="false" visible="{playerInfo.monster_id}"/>
+			<mx:Image x="140" y="143" width="50" height="50" id="trap_icon" source="assets/images/trap.jpg" enabled="false" visible="{playerInfo.trap_id}"/>
+			<mx:Image x="255" y="143" width="50" height="50" id="stairs_icon" source="assets/images/stairs.jpg" enabled="false" visible="false"/>
+			<mx:Image x="197" y="143" width="50" height="50" id="chest_icon" source="assets/images/chest.png" enabled="false" visible="{playerInfo.chest_id}"/>
+			<s:TextArea x="126" y="10" width="48" height="24" text="Room:" contentBackgroundColor="white" color="black"/>
+			<s:TextArea x="173" y="10" width="56" height="24" contentBackgroundColor="white" color="black" text="{playerInfo.dungeon_coord}" editable="false"/>
+			<s:Button x="19" y="422" click="doAttack()" label="Attack" id="Attack" enabled="true" width="116"/>
+			<s:Button x="155" y="423" click="getMonster()" label="New Monster" id="new_monster" enabled="true" width="116"/>
+			<s:Button x="288" y="424" click="getFloor()" label="New Level" id="new_level" enabled="true" width="115"/>
+	
+		</s:NavigatorContent>
+		<s:NavigatorContent label="Inventory" width="100%" height="100%" backgroundColor="white" id="inventory">
+		</s:NavigatorContent>
+		<s:NavigatorContent label="Character" width="100%" height="100%" backgroundColor="white" id="character">
+			<s:TextArea x="10" y="39" width="42" height="21" text="LVL"/>
+			<s:TextArea x="10" y="97" width="42" height="21" text="ATK"/>
+			<s:TextArea x="10" y="126" width="42" height="21" text="DEF"/>
+			<s:TextArea x="10" y="68" width="42" height="21" text="SP"/>
+			<s:TextArea x="10" y="154" width="42" height="21" text="DID"/>
+			<s:TextArea x="10" y="183" width="42" height="21" text="DCO"/>
+			<s:TextArea x="64" y="39" width="42" height="21" text="{playerInfo.level}" id="level" editable="false"/>
+			<s:TextArea x="64" y="97" width="42" height="21" text="{playerInfo.attack}" id="attack" editable="false"/>
+			<s:TextArea x="64" y="126" width="42" height="21" text="{playerInfo.defense}" id="defense" editable="false"/>
+			<s:TextArea x="64" y="68" width="42" height="21" text="{playerInfo.sp}" id="sp" editable="false"/>
+			<s:TextArea x="64" y="154" width="42" height="21" text="{playerInfo.dungeon_id}" id="dungeon_id" editable="false"/>
+			<s:TextArea x="64" y="183" width="42" height="21" text="{playerInfo.dungeon_coord}" id="dungeon_coord" editable="false"/>
+		</s:NavigatorContent>
+		<s:NavigatorContent label="Coins" width="100%" height="100%" id="coins">
+		</s:NavigatorContent>
+	</mx:TabNavigator>
+	
+</s:Application>

@@ -1,0 +1,35 @@
+/* CSS file */
+@namespace s "library://ns.adobe.com/flex/spark";
+@namespace mx "library://ns.adobe.com/flex/mx";
+
+global
+{
+	font-family: LoveYaEmbedded;
+	font-size: 12;
+}
+
+@font-face {
+	src: url("assets/fonts/LoveYa.ttf");
+	fontFamily: LoveYaEmbedded;
+	fontWeight: normal;
+	embedAsCFF: true;
+}
+
+@font-face {
+	src: url("assets/fonts/LoveYa.ttf");
+	fontFamily: LoveYaEmbedded;
+	fontWeight: bold;
+	embedAsCFF: false;
+}
+
+.myPlainStyle {
+	fontSize: 12;
+	fontFamily: LoveYaEmbedded;
+}
+
+.myBoldStyle {
+	fontSize: 12;
+	fontFamily: LoveYaEmbedded;
+	fontWeight: bold;
+}
+
